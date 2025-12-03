@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "575205587690",
+    "project_id": "cdis-77fc0",
+    "storage_bucket": "cdis-77fc0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:575205587690:android:ca7927334c74e88b21b593",
+        "android_client_info": {
+          "package_name": "com.iitk.cdisexplorer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVMRFkt-JBIM6luJ2FnCcQ-PRKHys3Ozw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

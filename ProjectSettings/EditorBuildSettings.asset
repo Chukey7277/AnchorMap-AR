@@ -1,0 +1,16 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/Samples/MultiSet-SDK/1.9.3/Sample Scenes/Localization/cdis_lab_scene.unity
+    guid: 72aec49239b874f249c3f713f6cf75d1
+  m_configObjects:
+    UnityEditor.XR.ARCore.ARCoreSettings: {fileID: 11400000, guid: 2c3664f2a7c7546218ff0d2f1b1bb7fd, type: 2}
+    com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 289c1b55c9541489481df5cc06664110, type: 3}
+    com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 07a61b1d13f1a4de99dbcba57cfedb18, type: 2}
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 1070eaa194b4c43a5898e3fde1c229ee, type: 2}
+  m_UseUCBPForAssetBundles: 0
