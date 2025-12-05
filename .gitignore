@@ -12,3 +12,7 @@ UserSettings/
 *.sln
 *.user
 *.pidb
+.DS_Store
+cdislab_BackUpThisFolder_ButDontShipItWithYourGame/
+*/il2cppOutput/
+[Bb]ackup/

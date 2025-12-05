@@ -19,6 +19,7 @@ public class FirestoreAnchorService : MonoBehaviour
 
     void Awake()
     {
+        // Simple singleton
         if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
@@ -52,8 +53,14 @@ public class FirestoreAnchorService : MonoBehaviour
     }
 #endif
 
-    // ---------- SAVE ----------
+    // ----------------------------------------------------------------------
+    // SAVE
+    // ----------------------------------------------------------------------
 
+    /// <summary>
+    /// Save one anchor document to Firestore.
+    /// Assumes data.transform.localPosition is MAP-LOCAL (child of AnchorsRoot under Map Space).
+    /// </summary>
     public void SaveAnchor(AnchorData data)
     {
         if (data == null)
@@ -77,7 +84,7 @@ public class FirestoreAnchorService : MonoBehaviour
             { "title",        data.title },
             { "description",  data.description },
 
-            // store MAP-LOCAL coordinates
+            // store MAP-LOCAL coordinates (relative to Map Space)
             { "localX",       localPos.x },
             { "localY",       localPos.y },
             { "localZ",       localPos.z },
@@ -95,7 +102,8 @@ public class FirestoreAnchorService : MonoBehaviour
               }
               else
               {
-                  Debug.Log("[FirestoreAnchorService] Anchor saved with ID: " + task.Result.Id);
+                  Debug.Log("[FirestoreAnchorService] Anchor saved with ID: " + task.Result.Id +
+                            $"  (mapId={data.mapId}, local=({localPos.x:F3},{localPos.y:F3},{localPos.z:F3}))");
               }
           });
 #else
@@ -104,8 +112,16 @@ public class FirestoreAnchorService : MonoBehaviour
 #endif
     }
 
-    // ---------- LOAD ----------
+    // ----------------------------------------------------------------------
+    // LOAD
+    // ----------------------------------------------------------------------
 
+    /// <summary>
+    /// Load all anchors for a mapId and spawn prefabs.
+    /// We treat stored localX/Y/Z as Map-Space local coordinates:
+    /// Contributor:   world → local via mapSpace.InverseTransformPoint
+    /// Explorer:      local → world via mapSpace.TransformPoint
+    /// </summary>
     public void LoadAnchorsForMap(
         string mapId,
         Transform mapSpace,
@@ -115,7 +131,13 @@ public class FirestoreAnchorService : MonoBehaviour
     {
         if (string.IsNullOrEmpty(mapId) || mapSpace == null || anchorsRoot == null || anchorPrefab == null)
         {
-            Debug.LogWarning("[FirestoreAnchorService] LoadAnchorsForMap: missing parameters.");
+            Debug.LogWarning(
+                "[FirestoreAnchorService] LoadAnchorsForMap: missing parameters.\n" +
+                $"  mapId={mapId}\n" +
+                $"  mapSpace={mapSpace}\n" +
+                $"  anchorsRoot={anchorsRoot}\n" +
+                $"  anchorPrefab={anchorPrefab}"
+            );
             return;
         }
 
@@ -126,7 +148,7 @@ public class FirestoreAnchorService : MonoBehaviour
             return;
         }
 
-        // Clear existing children (optional)
+        // Optional: clear existing children so we don't duplicate
         for (int i = anchorsRoot.childCount - 1; i >= 0; i--)
         {
             Destroy(anchorsRoot.GetChild(i).gameObject);
@@ -158,19 +180,32 @@ public class FirestoreAnchorService : MonoBehaviour
                   string title       = dict.ContainsKey("title")       ? dict["title"]       as string : "";
                   string description = dict.ContainsKey("description") ? dict["description"] as string : "";
 
-                  Vector3 localPos = new Vector3(x, y, z);
+                  // 1) Map-local position
+                  Vector3 localPosMap = new Vector3(x, y, z);
 
+                  // 2) Convert back to world using mapSpace
+                  Vector3 worldPos = mapSpace.TransformPoint(localPosMap);
+
+                  // 3) Instantiate under AnchorsRoot at that world position
                   GameObject pin = GameObject.Instantiate(anchorPrefab, anchorsRoot);
-                  pin.transform.localPosition = localPos;
-                  // keep prefab rotation
+                  pin.transform.position = worldPos;   // NOTE: position, not localPosition
+                  // keep prefab rotation / scale as-is
+
+                  Debug.Log($"[FirestoreAnchorService] spawn '{title}' " +
+                            $"map-local=({localPosMap.x:F3},{localPosMap.y:F3},{localPosMap.z:F3}) " +
+                            $"world=({worldPos.x:F3},{worldPos.y:F3},{worldPos.z:F3})");
 
                   var data = pin.GetComponent<AnchorData>();
                   if (data != null)
                   {
                       data.mapId         = mapId;
-                      data.localPosition = localPos;
+                      data.localPosition = localPosMap;
                       data.title         = title;
                       data.description   = description;
+                  }
+                  else
+                  {
+                      Debug.LogWarning("[FirestoreAnchorService] Spawned pin has no AnchorData component.");
                   }
               }
           });

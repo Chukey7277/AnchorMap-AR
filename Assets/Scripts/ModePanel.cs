@@ -28,7 +28,6 @@ public class ModePanel : MonoBehaviour
     [Tooltip("How long the Explorer wait overlay stays visible (seconds).")]
     public float explorerWaitSeconds = 5f;
 
-    // Keep handle to the running wait coroutine (if any)
     private Coroutine waitRoutine;
 
     void Start()
@@ -42,10 +41,28 @@ public class ModePanel : MonoBehaviour
         if (explorerWaitPanel != null)
             explorerWaitPanel.SetActive(false);
 
-        if (anchorPlacer != null) anchorPlacer.enabled = false;
-        if (explorer     != null) explorer.enabled     = false;
+        if (anchorPlacer != null)
+        {
+            anchorPlacer.enabled = false;
+            Debug.Log("[ModePanel] Start: anchorPlacer disabled");
+        }
+        else
+        {
+            Debug.LogWarning("[ModePanel] Start: anchorPlacer NOT ASSIGNED");
+        }
 
-        if (loader != null) loader.enabled = true;
+        if (explorer != null)
+        {
+            explorer.enabled = false;
+            Debug.Log("[ModePanel] Start: explorer disabled");
+        }
+        else
+        {
+            Debug.LogWarning("[ModePanel] Start: explorer NOT ASSIGNED");
+        }
+
+        if (loader != null)
+            loader.enabled = true;
     }
 
     // ---------- Contributor button ----------
@@ -63,15 +80,27 @@ public class ModePanel : MonoBehaviour
         if (explorerWaitPanel != null)
             explorerWaitPanel.SetActive(false);
 
-        // Stop any pending wait coroutine from Explorer
         if (waitRoutine != null)
         {
             StopCoroutine(waitRoutine);
             waitRoutine = null;
         }
 
-        if (anchorPlacer != null) anchorPlacer.enabled = true;
-        if (explorer     != null) explorer.enabled     = false;
+        if (anchorPlacer != null)
+        {
+            anchorPlacer.enabled = true;
+            Debug.Log("[ModePanel] Contributor: anchorPlacer.enabled = true");
+        }
+        else
+        {
+            Debug.LogError("[ModePanel] Contributor: anchorPlacer is NULL");
+        }
+
+        if (explorer != null)
+        {
+            explorer.enabled = false;
+            Debug.Log("[ModePanel] Contributor: explorer.enabled = false");
+        }
     }
 
     // ---------- Explorer button ----------
@@ -86,17 +115,28 @@ public class ModePanel : MonoBehaviour
         if (backButton != null)
             backButton.SetActive(true);
 
-        if (anchorPlacer != null) anchorPlacer.enabled = false;
-        if (explorer     != null) explorer.enabled     = true;
+        if (anchorPlacer != null)
+        {
+            anchorPlacer.enabled = false;
+            Debug.Log("[ModePanel] Explorer: anchorPlacer.enabled = false");
+        }
 
-        // Show "please wait" overlay
+        if (explorer != null)
+        {
+            explorer.enabled = true;
+            Debug.Log("[ModePanel] Explorer: explorer.enabled = true");
+        }
+        else
+        {
+            Debug.LogError("[ModePanel] Explorer: explorer is NULL");
+        }
+
         if (explorerWaitPanel != null)
             explorerWaitPanel.SetActive(true);
 
-        // Start loading anchors
         if (loader != null)
         {
-            Debug.Log("[ModePanel] Explorer clicked – loading anchors from Firestore");
+            Debug.Log("[ModePanel] Explorer: calling loader.LoadAnchors()");
             loader.LoadAnchors();
         }
         else
@@ -104,7 +144,6 @@ public class ModePanel : MonoBehaviour
             Debug.LogWarning("[ModePanel] Explorer clicked but Loader is not assigned.");
         }
 
-        // Hide the wait panel after a few seconds
         if (explorerWaitPanel != null)
         {
             if (waitRoutine != null)
@@ -130,8 +169,17 @@ public class ModePanel : MonoBehaviour
     {
         Debug.Log("[ModePanel] Back clicked – returning to mode selection");
 
-        if (anchorPlacer != null) anchorPlacer.enabled = false;
-        if (explorer     != null) explorer.enabled     = false;
+        if (anchorPlacer != null)
+        {
+            anchorPlacer.enabled = false;
+            Debug.Log("[ModePanel] Back: anchorPlacer.enabled = false");
+        }
+
+        if (explorer != null)
+        {
+            explorer.enabled = false;
+            Debug.Log("[ModePanel] Back: explorer.enabled = false");
+        }
 
         if (welcomePanel != null)
             welcomePanel.SetActive(true);
@@ -142,7 +190,6 @@ public class ModePanel : MonoBehaviour
         if (explorerWaitPanel != null)
             explorerWaitPanel.SetActive(false);
 
-        // Stop any wait coroutine
         if (waitRoutine != null)
         {
             StopCoroutine(waitRoutine);
