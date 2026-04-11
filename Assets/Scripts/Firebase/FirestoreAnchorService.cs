@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks; // IMPORTANT: disambiguate Task
 using UnityEngine;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -17,14 +19,32 @@ public class FirestoreAnchorService : MonoBehaviour
     private bool firebaseReady = false;
 #endif
 
-    void Awake()
+    // ======================================================
+    // READY FLAG
+    // ======================================================
+    public bool IsReady
     {
-        // Simple singleton
+        get
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return firebaseReady && db != null;
+#else
+            return false;
+#endif
+        }
+    }
+
+    // ======================================================
+    // LIFECYCLE
+    // ======================================================
+    private void Awake()
+    {
         if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
             return;
         }
+
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
@@ -34,183 +54,436 @@ public class FirestoreAnchorService : MonoBehaviour
     }
 
 #if UNITY_ANDROID && !UNITY_EDITOR
-    void InitializeFirebase()
+    private void InitializeFirebase()
     {
-        FirebaseApp.CheckAndFixDependenciesAsync().ContinueWithOnMainThread(task =>
-        {
-            var status = task.Result;
-            if (status == DependencyStatus.Available)
+        FirebaseApp.CheckAndFixDependenciesAsync()
+            .ContinueWithOnMainThread((Task<DependencyStatus> task) =>
             {
-                db = FirebaseFirestore.DefaultInstance;
-                firebaseReady = true;
-                Debug.Log("[FirestoreAnchorService] Firebase ready.");
-            }
-            else
-            {
-                Debug.LogError("[FirestoreAnchorService] Could not resolve all Firebase dependencies: " + status);
-            }
-        });
+                if (task.IsFaulted)
+                {
+                    firebaseReady = false;
+                    db = null;
+                    Debug.LogError("[FirestoreAnchorService] CheckAndFixDependenciesAsync faulted: " + task.Exception);
+                    return;
+                }
+
+                if (task.Result == DependencyStatus.Available)
+                {
+                    db = FirebaseFirestore.DefaultInstance;
+                    firebaseReady = true;
+                    Debug.Log("[FirestoreAnchorService] Firebase ready.");
+                }
+                else
+                {
+                    firebaseReady = false;
+                    db = null;
+                    Debug.LogError("[FirestoreAnchorService] Firebase dependency error: " + task.Result);
+                }
+            });
     }
 #endif
 
-    // ----------------------------------------------------------------------
-    // SAVE
-    // ----------------------------------------------------------------------
-
-    /// <summary>
-    /// Save one anchor document to Firestore.
-    /// Assumes data.transform.localPosition is MAP-LOCAL (child of AnchorsRoot under Map Space).
-    /// </summary>
-    public void SaveAnchor(AnchorData data)
+    // ======================================================
+    // WAIT-UNTIL-READY HELPER
+    // ======================================================
+    public void WhenReady(MonoBehaviour owner, Action onReady, float timeoutSeconds = 10f)
     {
-        if (data == null)
+        if (owner == null)
         {
-            Debug.LogWarning("[FirestoreAnchorService] SaveAnchor called with null data.");
+            Debug.LogWarning("[FirestoreAnchorService] WhenReady called with null owner.");
             return;
         }
 
-        Vector3 localPos = data.transform.localPosition;
+        owner.StartCoroutine(WaitReadyCoroutine(onReady, timeoutSeconds));
+    }
+
+    private IEnumerator WaitReadyCoroutine(Action onReady, float timeoutSeconds)
+    {
+        float start = Time.realtimeSinceStartup;
+
+        while (!IsReady)
+        {
+            if (timeoutSeconds > 0f && (Time.realtimeSinceStartup - start) > timeoutSeconds)
+            {
+                Debug.LogWarning("[FirestoreAnchorService] Firebase not ready (timeout).");
+                yield break;
+            }
+            yield return null;
+        }
+
+        onReady?.Invoke();
+    }
+
+    // ======================================================
+    // SAVE ANCHOR (INDOOR + OUTDOOR)
+    // ======================================================
+    public void SaveAnchor(AnchorData data)
+    {
+        SaveAnchor(
+            data,
+            hAccMeters: null,
+            vAccMeters: null,
+            yawAccDeg: null,
+            altitudeMode: null,
+            altitudeOffsetMeters: null
+        );
+    }
+
+    public void SaveAnchor(
+        AnchorData data,
+        float? hAccMeters,
+        float? vAccMeters,
+        float? yawAccDeg,
+        string altitudeMode,
+        float? altitudeOffsetMeters
+    )
+    {
+        if (data == null) return;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
-        if (!firebaseReady || db == null)
+        if (!IsReady)
         {
-            Debug.LogWarning("[FirestoreAnchorService] Firebase not ready, skipping save.");
+            Debug.LogWarning("[FirestoreAnchorService] SaveAnchor called but Firebase not ready yet.");
             return;
         }
 
         var doc = new Dictionary<string, object>
         {
-            { "mapId",        data.mapId },
-            { "title",        data.title },
-            { "description",  data.description },
-
-            // store MAP-LOCAL coordinates (relative to Map Space)
-            { "localX",       localPos.x },
-            { "localY",       localPos.y },
-            { "localZ",       localPos.z },
-
-            { "createdAt",    Timestamp.GetCurrentTimestamp() }
+            { "anchorType",  data.anchorType.ToString() }, // "Indoor" or "Outdoor"
+            { "title",       data.title ?? "" },
+            { "description", data.description ?? "" },
+            { "createdAt",   Timestamp.GetCurrentTimestamp() }
         };
 
-        db.Collection("anchors")
-          .AddAsync(doc)
-          .ContinueWithOnMainThread(task =>
-          {
-              if (task.IsFaulted)
-              {
-                  Debug.LogError("[FirestoreAnchorService] Error writing document: " + task.Exception);
-              }
-              else
-              {
-                  Debug.Log("[FirestoreAnchorService] Anchor saved with ID: " + task.Result.Id +
-                            $"  (mapId={data.mapId}, local=({localPos.x:F3},{localPos.y:F3},{localPos.z:F3}))");
-              }
-          });
-#else
-        Debug.Log($"[FirestoreAnchorService] (Editor) Would save anchor: " +
-                  $"{data.mapId} / {data.title} @ local ({localPos.x:F3}, {localPos.y:F3}, {localPos.z:F3})");
+        if (data.anchorType == AnchorType.Indoor)
+{
+    doc["mapId"]  = data.mapId ?? "";
+    doc["localX"] = data.localPosition.x;
+    doc["localY"] = data.localPosition.y;
+    doc["localZ"] = data.localPosition.z;
+
+    doc["rotX"] = data.indoorLocalRotation.x;
+    doc["rotY"] = data.indoorLocalRotation.y;
+    doc["rotZ"] = data.indoorLocalRotation.z;
+    doc["rotW"] = data.indoorLocalRotation.w;
+}
+        else
+        {
+            // -------------------------
+            // Outdoor: core geospatial
+            // -------------------------
+            doc["latitude"]  = data.latitude;
+            doc["longitude"] = data.longitude;
+            doc["altitude"]  = data.altitude;  // absolute altitude used for placement
+            doc["heading"]   = data.heading;
+
+            // -------------------------
+            // Save-time accuracy: prefer AnchorData.saved*
+            // fallback to the optional params if you still pass them
+            // -------------------------
+            float hAccToWrite = (data.savedHAcc >= 0f) ? data.savedHAcc : (hAccMeters ?? -1f);
+            float vAccToWrite = (data.savedVAcc >= 0f) ? data.savedVAcc : (vAccMeters ?? -1f);
+            float yawAccToWrite = (data.savedYawAcc >= 0f) ? data.savedYawAcc : (yawAccDeg ?? -1f);
+
+            if (hAccToWrite >= 0f) doc["hAcc"] = hAccToWrite;
+            if (vAccToWrite >= 0f) doc["vAcc"] = vAccToWrite;
+            if (yawAccToWrite >= 0f) doc["yawAcc"] = yawAccToWrite;
+
+            // -------------------------
+            // Altitude strategy metadata (single source of truth)
+            // Prefer AnchorData.saved*; fall back to params.
+            // Avoid overwriting the same keys twice.
+            // -------------------------
+            string modeToWrite =
+                !string.IsNullOrEmpty(data.savedAltitudeMode) ? data.savedAltitudeMode : (altitudeMode ?? "");
+
+            if (!string.IsNullOrEmpty(modeToWrite))
+                doc["altitudeMode"] = modeToWrite;
+
+            float offsetToWrite =
+                (Mathf.Abs(data.savedAltitudeOffset) > 0.0001f) ? data.savedAltitudeOffset : (altitudeOffsetMeters ?? 0f);
+
+            // Only write offset if mode exists OR offset is meaningfully non-zero
+            if (!string.IsNullOrEmpty(modeToWrite) || Mathf.Abs(offsetToWrite) > 0.0001f)
+                doc["altitudeOffset"] = offsetToWrite;
+
+            // Optional: also store absolute altitude as float snapshot
+            if (Mathf.Abs(data.savedAltitudeAbsolute) > 0.0001f)
+                doc["savedAltitudeAbsolute"] = data.savedAltitudeAbsolute;
+
+            // =========================
+            // EVAL / DEBUG FIELDS (Contributor vs Explorer)
+            // =========================
+            doc["saveWorldX"] = data.evalSaveWorld.x;
+            doc["saveWorldY"] = data.evalSaveWorld.y;
+            doc["saveWorldZ"] = data.evalSaveWorld.z;
+
+            doc["saveCamLat"] = data.evalSaveCamLat;
+            doc["saveCamLng"] = data.evalSaveCamLng;
+            doc["saveCamAlt"] = data.evalSaveCamAlt;
+
+            doc["saveCamHAcc"] = data.evalSaveHAcc;
+            doc["saveCamVAcc"] = data.evalSaveVAcc;
+            doc["saveCamYawAcc"] = data.evalSaveYawAcc;
+
+            // Keep eval mode/offset separate so they don't clash with real placement strategy
+            if (!string.IsNullOrEmpty(data.evalAltitudeMode))
+                doc["evalAltitudeMode"] = data.evalAltitudeMode;
+
+            if (Mathf.Abs(data.evalAltitudeOffset) > 0.0001f)
+                doc["evalAltitudeOffset"] = data.evalAltitudeOffset;
+        }
+
+        db.Collection("anchors").AddAsync(doc)
+            .ContinueWithOnMainThread((Task<DocumentReference> task) =>
+            {
+                if (task.IsFaulted)
+                    Debug.LogError("[FirestoreAnchorService] Save failed: " + task.Exception);
+                else
+                    Debug.Log("[FirestoreAnchorService] Anchor saved: " + task.Result.Id);
+            });
 #endif
     }
 
-    // ----------------------------------------------------------------------
-    // LOAD
-    // ----------------------------------------------------------------------
-
-    /// <summary>
-    /// Load all anchors for a mapId and spawn prefabs.
-    /// We treat stored localX/Y/Z as Map-Space local coordinates:
-    /// Contributor:   world → local via mapSpace.InverseTransformPoint
-    /// Explorer:      local → world via mapSpace.TransformPoint
-    /// </summary>
+    // ======================================================
+    // LOAD – INDOOR (MAP-LOCAL)
+    // ======================================================
     public void LoadAnchorsForMap(
         string mapId,
         Transform mapSpace,
         Transform anchorsRoot,
-        GameObject anchorPrefab
+        GameObject anchorPrefab,
+        bool ensureTappable = true,
+        string pinLayerName = "ARPin",
+        Vector3? autoColliderSize = null
     )
     {
-        if (string.IsNullOrEmpty(mapId) || mapSpace == null || anchorsRoot == null || anchorPrefab == null)
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (!IsReady)
+        {
+            Debug.LogWarning("[FirestoreAnchorService] LoadAnchorsForMap called but Firebase not ready yet.");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(mapId))
+        {
+            Debug.LogWarning("[FirestoreAnchorService] LoadAnchorsForMap: mapId is empty.");
+            return;
+        }
+
+        if (mapSpace == null || anchorsRoot == null || anchorPrefab == null)
         {
             Debug.LogWarning(
-                "[FirestoreAnchorService] LoadAnchorsForMap: missing parameters.\n" +
-                $"  mapId={mapId}\n" +
-                $"  mapSpace={mapSpace}\n" +
-                $"  anchorsRoot={anchorsRoot}\n" +
-                $"  anchorPrefab={anchorPrefab}"
+                "[FirestoreAnchorService] LoadAnchorsForMap missing refs:" +
+                $"\n  mapSpace={mapSpace}" +
+                $"\n  anchorsRoot={anchorsRoot}" +
+                $"\n  anchorPrefab={anchorPrefab}"
             );
             return;
         }
 
-#if UNITY_ANDROID && !UNITY_EDITOR
-        if (!firebaseReady || db == null)
-        {
-            Debug.LogWarning("[FirestoreAnchorService] Firebase not ready, cannot load anchors.");
-            return;
-        }
-
-        // Optional: clear existing children so we don't duplicate
+        // Clear existing pins to avoid duplicates
         for (int i = anchorsRoot.childCount - 1; i >= 0; i--)
-        {
             Destroy(anchorsRoot.GetChild(i).gameObject);
-        }
+
+        Debug.Log($"[FirestoreAnchorService] Loading indoor anchors for mapId='{mapId}'...");
 
         db.Collection("anchors")
+          .WhereEqualTo("anchorType", "Indoor")
           .WhereEqualTo("mapId", mapId)
           .GetSnapshotAsync()
-          .ContinueWithOnMainThread(task =>
+          .ContinueWithOnMainThread((Task<QuerySnapshot> task) =>
           {
               if (task.IsFaulted)
               {
-                  Debug.LogError("[FirestoreAnchorService] Error loading anchors: " + task.Exception);
+                  Debug.LogError("[FirestoreAnchorService] LoadAnchorsForMap faulted: " + task.Exception);
+                  return;
+              }
+              if (task.IsCanceled)
+              {
+                  Debug.LogWarning("[FirestoreAnchorService] LoadAnchorsForMap canceled.");
                   return;
               }
 
-              var snapshot = task.Result;
-              Debug.Log($"[FirestoreAnchorService] Loaded {snapshot.Count} anchors for map '{mapId}'.");
+              QuerySnapshot snap = task.Result;
 
-              foreach (var doc in snapshot.Documents)
+              // IMPORTANT FIX: use Firestore's Count property (not Documents.Count)
+              int fetched = snap.Count;
+              int spawned = 0;
+
+              foreach (var docSnap in snap.Documents)
               {
-                  var dict = doc.ToDictionary();
+                  var d = docSnap.ToDictionary();
 
-                  // Use the SAME field names we used when saving
-                  float x = Convert.ToSingle(dict["localX"]);
-                  float y = Convert.ToSingle(dict["localY"]);
-                  float z = Convert.ToSingle(dict["localZ"]);
+                  if (!d.TryGetValue("localX", out var lx) ||
+                      !d.TryGetValue("localY", out var ly) ||
+                      !d.TryGetValue("localZ", out var lz))
+                  {
+                      Debug.LogWarning($"[FirestoreAnchorService] Doc {docSnap.Id} missing localX/Y/Z. Skipping.");
+                      continue;
+                  }
 
-                  string title       = dict.ContainsKey("title")       ? dict["title"]       as string : "";
-                  string description = dict.ContainsKey("description") ? dict["description"] as string : "";
+                  Vector3 localInMap;
+try
+{
+    localInMap = new Vector3(
+        Convert.ToSingle(lx),
+        Convert.ToSingle(ly),
+        Convert.ToSingle(lz)
+    );
+}
+catch (Exception e)
+{
+    Debug.LogWarning($"[FirestoreAnchorService] Doc {docSnap.Id} localX/Y/Z parse error: {e.Message}");
+    continue;
+}
 
-                  // 1) Map-local position
-                  Vector3 localPosMap = new Vector3(x, y, z);
+Quaternion localRotInMap = Quaternion.identity;
 
-                  // 2) Convert back to world using mapSpace
-                  Vector3 worldPos = mapSpace.TransformPoint(localPosMap);
+object rxObj = null;
+object ryObj = null;
+object rzObj = null;
+object rwObj = null;
 
-                  // 3) Instantiate under AnchorsRoot at that world position
-                  GameObject pin = GameObject.Instantiate(anchorPrefab, anchorsRoot);
-                  pin.transform.position = worldPos;   // NOTE: position, not localPosition
-                  // keep prefab rotation / scale as-is
+bool hasRotationX = d.TryGetValue("rotX", out rxObj);
+bool hasRotationY = d.TryGetValue("rotY", out ryObj);
+bool hasRotationZ = d.TryGetValue("rotZ", out rzObj);
+bool hasRotationW = d.TryGetValue("rotW", out rwObj);
 
-                  Debug.Log($"[FirestoreAnchorService] spawn '{title}' " +
-                            $"map-local=({localPosMap.x:F3},{localPosMap.y:F3},{localPosMap.z:F3}) " +
-                            $"world=({worldPos.x:F3},{worldPos.y:F3},{worldPos.z:F3})");
+bool hasRotation = hasRotationX && hasRotationY && hasRotationZ && hasRotationW;
+
+if (hasRotation)
+{
+    try
+    {
+        localRotInMap = new Quaternion(
+            Convert.ToSingle(rxObj),
+            Convert.ToSingle(ryObj),
+            Convert.ToSingle(rzObj),
+            Convert.ToSingle(rwObj)
+        );
+    }
+    catch (Exception e)
+    {
+        Debug.LogWarning($"[FirestoreAnchorService] Doc {docSnap.Id} rotX/Y/Z/W parse error: {e.Message}");
+        localRotInMap = Quaternion.identity;
+    }
+}
+
+                
+
+                 GameObject pin = Instantiate(anchorPrefab);
+
+// compute world pose from stored map-local transform
+Vector3 worldPos = mapSpace.TransformPoint(localInMap);
+Quaternion worldRot = mapSpace.rotation * localRotInMap;
+
+// parent while preserving world transform
+pin.transform.SetParent(anchorsRoot, true);
+
+// restore exact saved world pose
+pin.transform.position = worldPos;
+pin.transform.rotation = worldRot;
+pin.transform.localScale = Vector3.one;
 
                   var data = pin.GetComponent<AnchorData>();
-                  if (data != null)
-                  {
-                      data.mapId         = mapId;
-                      data.localPosition = localPosMap;
-                      data.title         = title;
-                      data.description   = description;
-                  }
-                  else
-                  {
-                      Debug.LogWarning("[FirestoreAnchorService] Spawned pin has no AnchorData component.");
-                  }
+                  if (data == null) data = pin.AddComponent<AnchorData>();
+
+                  data.SetIndoor(mapId, localInMap, localRotInMap);
+
+                  if (d.TryGetValue("title", out var t) && t != null) data.title = t.ToString();
+                  if (d.TryGetValue("description", out var desc) && desc != null) data.description = desc.ToString();
+
+                  if (ensureTappable)
+                      EnsurePinTappable(pin, pinLayerName, autoColliderSize ?? new Vector3(0.25f, 0.25f, 0.25f));
+
+                  spawned++;
               }
+
+              Debug.Log($"[FirestoreAnchorService] Indoor anchors fetched={fetched}, spawned={spawned}, mapId='{mapId}'.");
+          });
+#endif
+    }
+
+    // ======================================================
+    // LOAD – OUTDOOR DATA ONLY (NO AR HERE)
+    // ======================================================
+    public void LoadOutdoorAnchorDocuments(
+        Action<List<Dictionary<string, object>>> onLoaded,
+        Action<Exception> onError = null
+    )
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (!IsReady)
+        {
+            var ex = new Exception("Firebase not ready");
+            Debug.LogWarning("[FirestoreAnchorService] LoadOutdoorAnchorDocuments called but Firebase not ready yet.");
+            onError?.Invoke(ex);
+            return;
+        }
+
+        db.Collection("anchors")
+          .WhereEqualTo("anchorType", "Outdoor")
+          .GetSnapshotAsync()
+          .ContinueWithOnMainThread((Task<QuerySnapshot> task) =>
+          {
+              if (task.IsFaulted)
+              {
+                  Debug.LogError("[FirestoreAnchorService] LoadOutdoorAnchorDocuments faulted: " + task.Exception);
+                  onError?.Invoke(task.Exception);
+                  return;
+              }
+
+              if (task.IsCanceled)
+              {
+                  Debug.LogWarning("[FirestoreAnchorService] LoadOutdoorAnchorDocuments canceled.");
+                  onError?.Invoke(new Exception("Firestore outdoor query canceled"));
+                  return;
+              }
+
+              QuerySnapshot snap = task.Result;
+
+              List<Dictionary<string, object>> results = new List<Dictionary<string, object>>();
+              foreach (var docSnap in snap.Documents)
+              {
+                  var dict = docSnap.ToDictionary();
+                  dict["docId"] = docSnap.Id;
+                  results.Add(dict);
+              }
+
+              onLoaded?.Invoke(results);
           });
 #else
-        Debug.Log($"[FirestoreAnchorService] (Editor) Would load anchors for map '{mapId}'.");
+        onError?.Invoke(new Exception("LoadOutdoorAnchorDocuments called on non-Android or in Editor."));
 #endif
+    }
+
+    // ======================================================
+    // INTERNAL HELPERS (TAP SUPPORT)
+    // ======================================================
+    private static void EnsurePinTappable(GameObject pinObj, string layerName, Vector3 colliderSize)
+    {
+        if (pinObj == null) return;
+
+        // collider
+        if (pinObj.GetComponentInChildren<Collider>() == null)
+        {
+            var bc = pinObj.AddComponent<BoxCollider>();
+            bc.size = colliderSize;
+            bc.center = Vector3.zero;
+            bc.isTrigger = false;
+        }
+
+        // layer
+        int layer = LayerMask.NameToLayer(layerName);
+        if (layer >= 0) ApplyLayerRecursively(pinObj, layer);
+        else Debug.LogWarning($"[FirestoreAnchorService] Layer '{layerName}' not found. Create it in Project Settings > Tags and Layers.");
+    }
+
+    private static void ApplyLayerRecursively(GameObject root, int layer)
+    {
+        root.layer = layer;
+        for (int i = 0; i < root.transform.childCount; i++)
+            ApplyLayerRecursively(root.transform.GetChild(i).gameObject, layer);
     }
 }

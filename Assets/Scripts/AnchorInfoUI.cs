@@ -12,6 +12,9 @@ public class AnchorInfoUI : MonoBehaviour
     public GameObject titleLabel;          // "Title" label
     public GameObject descriptionLabel;    // "Description" label
     public GameObject saveButton;          // SaveButton
+    [Header("Contributor: speech buttons")]
+    public GameObject titleMicButton;
+    public GameObject descriptionMicButton;
 
     [Header("Explorer: read-only text")]
     public TMP_Text explorerTitleText;         // plain title text
@@ -33,15 +36,21 @@ public class AnchorInfoUI : MonoBehaviour
     // Time when the panel was last closed (Save or Cancel)
     private static float lastCloseTime = -999f;
     public static float LastCloseTime => lastCloseTime;
+    
 
     void Awake()
-    {
-        if (panel != null)
-            panel.SetActive(false);
+{
+    if (panel != null)
+        panel.SetActive(false);
+    
+    gameObject.SetActive(true); 
+    // Hide everything (prevents "empty panel")
+    SetContributorVisible(false);
+    SetExplorerVisible(false);
 
-        // Start with explorer text hidden (we mainly use contributor first)
-        SetExplorerVisible(false);
-    }
+    currentTarget = null;
+    deleteOnCancel = false;
+}
 
     // ---------- Helpers ----------
 
@@ -65,13 +74,15 @@ public class AnchorInfoUI : MonoBehaviour
     }
 
     void SetContributorVisible(bool visible)
-    {
-        if (titleLabel        != null) titleLabel.SetActive(visible);
-        if (descriptionLabel  != null) descriptionLabel.SetActive(visible);
-        if (titleInput        != null) titleInput.gameObject.SetActive(visible);
-        if (descriptionInput  != null) descriptionInput.gameObject.SetActive(visible);
-        if (saveButton        != null) saveButton.SetActive(visible);
-    }
+{
+    if (titleLabel           != null) titleLabel.SetActive(visible);
+    if (descriptionLabel     != null) descriptionLabel.SetActive(visible);
+    if (titleInput           != null) titleInput.gameObject.SetActive(visible);
+    if (descriptionInput     != null) descriptionInput.gameObject.SetActive(visible);
+    if (saveButton           != null) saveButton.SetActive(visible);
+    if (titleMicButton       != null) titleMicButton.SetActive(visible);
+    if (descriptionMicButton != null) descriptionMicButton.SetActive(visible);
+}
 
     void SetExplorerVisible(bool visible)
     {
@@ -95,6 +106,12 @@ public class AnchorInfoUI : MonoBehaviour
     // Called from AnchorPlacer (Contributor mode)
     public void OpenContributor(AnchorData target, bool deleteOnCancelFlag)
     {
+        if (target == null)
+{
+    Debug.LogWarning("[AnchorInfoUI] Open called with null target.");
+    CloseOnly();
+    return;
+}
         mode = InfoMode.Contributor;
         currentTarget = target;
         deleteOnCancel = deleteOnCancelFlag;
@@ -116,6 +133,12 @@ public class AnchorInfoUI : MonoBehaviour
     // Called from AnchorTapExplorer (Explorer mode)
     public void OpenExplorer(AnchorData target)
     {
+        if (target == null)
+{
+    Debug.LogWarning("[AnchorInfoUI] Open called with null target.");
+    CloseOnly();
+    return;
+}
         mode = InfoMode.Explorer;
         currentTarget = target;
         deleteOnCancel = false;   // never delete pins in explorer
@@ -134,6 +157,7 @@ public class AnchorInfoUI : MonoBehaviour
 
     public void SaveAndClose()
     {
+        UITapBlocker.NotifyUI();
         if (mode == InfoMode.Explorer)
         {
             // Should not happen, but be safe
@@ -168,6 +192,7 @@ public class AnchorInfoUI : MonoBehaviour
 
     public void Cancel()
     {
+        UITapBlocker.NotifyUI();
         Debug.Log("[AnchorInfoUI] Cancel/Close clicked, mode=" + mode);
 
         if (mode == InfoMode.Contributor && deleteOnCancel && currentTarget != null)
@@ -188,4 +213,44 @@ public class AnchorInfoUI : MonoBehaviour
         deleteOnCancel = false;
         lastCloseTime = Time.time;
     }
+    public void ForceCloseNoDelete()
+{
+    // Close panel but keep whatever pin exists.
+    deleteOnCancel = false;
+    CloseOnly();
+}
+public void SetDraftTitle(string value)
+{
+    string safeValue = value ?? "";
+
+    if (titleInput != null)
+        titleInput.SetTextWithoutNotify(safeValue);
+
+    if (currentTarget != null)
+        currentTarget.title = safeValue;
+}
+
+public void SetDraftDescription(string value)
+{
+    string safeValue = value ?? "";
+
+    if (descriptionInput != null)
+        descriptionInput.SetTextWithoutNotify(safeValue);
+
+    if (currentTarget != null)
+        currentTarget.description = safeValue;
+}
+public void SetDraftTitleOnlyData(string value)
+{
+    string safeValue = value ?? "";
+    if (currentTarget != null)
+        currentTarget.title = safeValue;
+}
+
+public void SetDraftDescriptionOnlyData(string value)
+{
+    string safeValue = value ?? "";
+    if (currentTarget != null)
+        currentTarget.description = safeValue;
+}
 }

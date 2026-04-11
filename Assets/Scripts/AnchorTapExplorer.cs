@@ -7,79 +7,110 @@ public class AnchorTapExplorer : MonoBehaviour
     public Camera arCamera;
     public AnchorInfoUI infoUI;
 
-    [Header("Raycast Settings")]
-    public float maxDistance = 50f;
+    [Header("State Gate (Required)")]
+    public ModePanel modePanel;
 
-    [Tooltip("Layers that contain tappable anchor pins (e.g. 'AnchorPin'). " +
-             "If left as 'Nothing', all layers will be raycast.")]
+    [Header("Raycast Settings")]
+    public float maxDistance = 100f;
+
+    [Tooltip("Set this to the ARPin layer (your pin prefab layer).")]
     public LayerMask anchorLayerMask;
+    [Header("Distance Filter")]
+    public bool useOutdoorInteractionRadius = true;
+    public float maxOutdoorInteractionDistanceMeters = 30f;
+    [Header("Debug")]
+    public bool logNoHit = false;
+
+    void OnDisable()
+    {
+        // If explorer is being turned off (mode switch), don't let UI linger
+        if (infoUI != null)
+            infoUI.ForceCloseNoDelete();
+    }
 
     void Update()
-    {
-        // If the info panel is already open, ignore taps
-        if (infoUI != null && infoUI.IsOpen)
-            return;
+{
+    // 0) Explorer only in explorer active states
+    if (modePanel == null ||
+        !(modePanel.IsInExplorerIndoorActive() || modePanel.IsInExplorerOutdoorActive()))
+        return;
+
+    // 1) Block taps right after mode / back / UI navigation
+    if (Time.time - ModePanel.LastModeSwitchTime < 0.8f)
+        return;
+
+    // 2) Block taps right after closing info panel
+    if (Time.time - AnchorInfoUI.LastCloseTime < 0.3f)
+        return;
+
+    // 3) Global UI blocker
+    if (UITapBlocker.ShouldBlock())
+        return;
+
+    // 4) If info panel is open, ignore taps
+    if (infoUI != null && infoUI.IsOpen)
+        return;
 
 #if UNITY_EDITOR
-        if (Input.GetMouseButtonDown(0))
-        {
-            if (EventSystem.current != null &&
-                EventSystem.current.IsPointerOverGameObject())
-                return;
+    if (Input.GetMouseButtonDown(0))
+    {
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+            return;
 
-            TrySelectAnchor(Input.mousePosition);
-        }
-#else
-        if (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Ended)
-        {
-            Touch t = Input.GetTouch(0);
-
-            if (EventSystem.current != null &&
-                EventSystem.current.IsPointerOverGameObject(t.fingerId))
-                return;
-
-            TrySelectAnchor(t.position);
-        }
-#endif
+        TrySelectAnchor(Input.mousePosition);
     }
+#else
+    if (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began)
+    {
+        Touch t = Input.GetTouch(0);
+
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(t.fingerId))
+            return;
+
+        TrySelectAnchor(t.position);
+    }
+#endif
+}
 
     void TrySelectAnchor(Vector2 screenPos)
     {
+        // Double-check gate (in case Update is bypassed in future edits)
+        if (modePanel == null || 
+    !(modePanel.IsInExplorerIndoorActive() || modePanel.IsInExplorerOutdoorActive()))
+    return;
+
         if (!arCamera || infoUI == null)
         {
             Debug.LogWarning("[AnchorTapExplorer] missing references");
             return;
         }
 
-        Ray ray = arCamera.ScreenPointToRay(screenPos);
-        RaycastHit hit;
-        bool hitSomething;
-
-        // If no layers are set in the mask, raycast against ALL layers
         if (anchorLayerMask.value == 0)
         {
-            hitSomething = Physics.Raycast(ray, out hit, maxDistance);
-        }
-        else
-        {
-            hitSomething = Physics.Raycast(ray, out hit, maxDistance, anchorLayerMask);
-        }
-
-        if (!hitSomething)
+            Debug.LogWarning("[AnchorTapExplorer] anchorLayerMask is NOTHING. Set it to ARPin in the Inspector.");
             return;
+        }
 
-        Debug.Log($"[AnchorTapExplorer] Hit {hit.collider.name} on layer {LayerMask.LayerToName(hit.collider.gameObject.layer)}");
+        Ray ray = arCamera.ScreenPointToRay(screenPos);
+
+        if (!Physics.Raycast(ray, out RaycastHit hit, maxDistance, anchorLayerMask, QueryTriggerInteraction.Collide))
+{
+    if (logNoHit)
+        Debug.Log("[AnchorTapExplorer] No hit on anchor layer mask.");
+    return;
+}
+
+        Debug.Log($"[AnchorTapExplorer] Hit '{hit.collider.name}' on layer '{LayerMask.LayerToName(hit.collider.gameObject.layer)}'");
 
         AnchorData data = hit.collider.GetComponentInParent<AnchorData>();
         if (data != null)
         {
-            Debug.Log("[AnchorTapExplorer] tapped anchor: " + data.title);
-            // VIEW-ONLY mode now:
+            Debug.Log("[AnchorTapExplorer] Tapped anchor: " + data.title);
             infoUI.OpenExplorer(data);
         }
         else
         {
-            Debug.Log("[AnchorTapExplorer] collider has no AnchorData in parents.");
+            Debug.Log("[AnchorTapExplorer] Hit collider, but no AnchorData in parents.");
         }
     }
 }

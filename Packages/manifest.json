@@ -1,5 +1,15 @@
 {
+  "scopedRegistries": [
+    {
+      "name": "Google AR",
+      "url": "https://unityregistry-pa.googleapis.com",
+      "scopes": [
+        "com.google.ar"
+      ]
+    }
+  ],
   "dependencies": {
+    "com.google.ar.core.arfoundation.extensions": "https://github.com/google-ar/arcore-unity-extensions.git#arf6",
     "com.multiset.sdk": "https://github.com/MultiSet-AI/multiset-unity-sdk.git",
     "com.unity.collab-proxy": "2.9.3",
     "com.unity.feature.development": "1.0.2",
@@ -9,7 +19,7 @@
     "com.unity.ugui": "2.0.0",
     "com.unity.visualscripting": "1.9.7",
     "com.unity.xr.arcore": "6.2.1",
-    "com.unity.xr.arfoundation": "6.2.1",
+    "com.yasirkula.speechtotext": "https://github.com/yasirkula/UnitySpeechToText.git",
     "com.unity.modules.accessibility": "1.0.0",
     "com.unity.modules.ai": "1.0.0",
     "com.unity.modules.androidjni": "1.0.0",
