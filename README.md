@@ -53,7 +53,7 @@ Project/
 ## ⚙️ Setup Instructions (Brief)
 1. Clone the repository:
 
-git clone https://github.com/your-username/your-repo.git
+git clone [https://github.com/your-username/your-repo.git](https://github.com/Chukey7277/AnchorMap-AR)
 
 2. Open the project in Unity (via Unity Hub).
 3. Configure:
