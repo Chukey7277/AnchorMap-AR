@@ -32,7 +32,7 @@ This work was developed as part of an MTech thesis at IIT Kanpur.
 
 ## 📂 Project Structure
 
-```text
+
 Project/
 │
 ├── Assets/
@@ -48,10 +48,11 @@ Project/
 │
 └── README.md
 
-## ⚙️ Setup Instructions (Brief)
 
+
+## ⚙️ Setup Instructions (Brief)
 1. Clone the repository:
-```bash
+
 git clone https://github.com/your-username/your-repo.git
 
 2. Open the project in Unity (via Unity Hub).
@@ -63,9 +64,7 @@ git clone https://github.com/your-username/your-repo.git
 
 4. Build and run the project on an ARCore-supported Android device.
 
----
 
-```markdown
 ## 📱 Usage
 
 ### Contributor Mode
