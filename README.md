@@ -94,16 +94,18 @@ These logs were used for performance evaluation and usability analysis in the th
 
 ## 📌 Limitations
 
-* Outdoor accuracy depends on ARCore Earth tracking quality.
-* Indoor operation requires pre-scanned MultiSet maps.
-* The current implementation supports text-based metadata only.
+- Outdoor accuracy depends on ARCore Earth tracking quality.
+- Outdoor anchors may show positional drift or slight misalignment because geospatial accuracy depends on GPS quality, visual features, lighting, and surrounding environmental conditions.
+- Indoor operation requires pre-scanned MultiSet maps.
+- The current implementation supports text-based metadata only.
 
 ## 🔮 Future Work
 
-* Multimedia anchor support such as images and audio
-* Navigation assistance toward anchors
-* Improved tracking robustness
-* Multi-user collaboration and moderation features
+- Multimedia anchor support such as images and audio
+- Navigation assistance toward anchors
+- Improve outdoor anchor accuracy using stronger filtering, repeated pose averaging, better readiness thresholds, and drift-compensation techniques
+- Improved tracking robustness
+- Multi-user collaboration and moderation features
 
 ## 👤 Author
 
